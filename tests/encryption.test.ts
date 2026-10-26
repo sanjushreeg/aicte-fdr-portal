@@ -27,7 +27,7 @@ describe("AES-256-GCM Encryption & Decryption", () => {
   it("should fail decryption when authentication tag is tampered", () => {
     const secretMessage = "TamperTagCheck";
     const encrypted = encrypt(secretMessage);
-    const [iv, tag, ciphertext] = encrypted.split(":");
+    const [iv, , ciphertext] = encrypted.split(":");
 
     // Modify the auth tag
     const fakeTag = Buffer.alloc(16, 0).toString("base64");

@@ -1,6 +1,5 @@
 import http from "http";
 import prisma from "../src/lib/prisma";
-import { requireAuth } from "../src/lib/serverAuth";
 import { encode } from "next-auth/jwt";
 
 let server: http.Server;

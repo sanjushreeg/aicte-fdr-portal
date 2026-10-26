@@ -11,11 +11,11 @@ export default async function AdminPage() {
     redirect("/dashboard");
   }
 
-  const [users, auditLogs, institutions] = await Promise.all([
-    prisma.user.findMany({ include: { institution: true }, take: 15 }),
-    prisma.auditLog.findMany({ take: 10, orderBy: { timestamp: "desc" }, include: { performedBy: true } }),
-    prisma.institution.findMany({ take: 10 }),
-  ]);
+  const auditLogs = await prisma.auditLog.findMany({
+    take: 10,
+    orderBy: { timestamp: "desc" },
+    include: { performedBy: true },
+  });
 
   return (
     <div className="min-h-screen bg-slate-100 p-8">
