@@ -4,6 +4,29 @@ import { validateCredentials } from "@/lib/auth";
 import { AuditService } from "@/lib/audit";
 import prisma from "@/lib/prisma";
 
+function extractClientIp(req: any): string {
+  const headers = req?.headers;
+  if (!headers) return "127.0.0.1";
+
+  const forwardedFor = typeof headers.get === "function"
+    ? headers.get("x-forwarded-for")
+    : headers["x-forwarded-for"];
+
+  if (forwardedFor && typeof forwardedFor === "string") {
+    return forwardedFor.split(",")[0].trim();
+  }
+
+  const realIp = typeof headers.get === "function"
+    ? headers.get("x-real-ip")
+    : headers["x-real-ip"];
+
+  if (realIp && typeof realIp === "string") {
+    return realIp.trim();
+  }
+
+  return "127.0.0.1";
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -13,26 +36,39 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials, req) {
-        const clientIp = (req?.headers as any)?.["x-forwarded-for"] || "127.0.0.1";
+        const clientIp = extractClientIp(req);
+        const attemptedEmail = credentials?.email || "UNKNOWN";
 
         if (!credentials?.email || !credentials?.password) {
+          try {
+            await AuditService.log({
+              action: "LOGIN_FAILED",
+              entity: "User",
+              entityId: "UNKNOWN",
+              performedById: null,
+              ip: clientIp,
+              after: { email: attemptedEmail, reason: "Missing credentials" },
+            });
+          } catch (e) {
+            console.error("Audit log error on missing credentials:", e);
+          }
           return null;
         }
 
         const user = await validateCredentials(credentials.email, credentials.password);
 
         if (!user) {
-          // Log FAILED login attempt in append-only AuditLog
+          // Log FAILED login attempt in append-only AuditLog (never log password)
           try {
-            const candidateUser = await (prisma as any).user.findUnique({
+            const candidateUser = await prisma.user.findUnique({
               where: { email: credentials.email },
             });
 
             await AuditService.log({
-              action: "LOGIN_FAILED" as any,
+              action: "LOGIN_FAILED",
               entity: "User",
               entityId: candidateUser ? candidateUser.id : "UNKNOWN",
-              performedById: candidateUser ? candidateUser.id : "00000000-0000-0000-0000-000000000000",
+              performedById: candidateUser ? candidateUser.id : null,
               ip: clientIp,
               after: { email: credentials.email, reason: "Invalid credentials" },
             });
@@ -45,7 +81,7 @@ export const authOptions: NextAuthOptions = {
         // Log successful login in append-only AuditLog
         try {
           await AuditService.log({
-            action: "LOGIN",
+            action: "LOGIN_SUCCESS",
             entity: "User",
             entityId: user.id,
             performedById: user.id,
@@ -74,6 +110,7 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        token.email = user.email;
         token.role = (user as any).role;
         token.institutionId = (user as any).institutionId;
       }
@@ -82,6 +119,7 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).id = token.id;
+        (session.user as any).email = token.email;
         (session.user as any).role = token.role;
         (session.user as any).institutionId = token.institutionId;
       }
@@ -98,7 +136,10 @@ export const authOptions: NextAuthOptions = {
             entityId: message.token.id as string,
             performedById: message.token.id as string,
             ip: "127.0.0.1",
-            after: { message: "User signed out" },
+            after: {
+              email: (message.token?.email as string) || undefined,
+              message: "User signed out successfully",
+            },
           });
         } catch (e) {
           console.error("Audit log error on signout:", e);

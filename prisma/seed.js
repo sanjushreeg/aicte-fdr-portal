@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   console.log("🧹 Cleaning up old database tables...");
-  await prisma.auditLog.deleteMany();
+  await prisma.$executeRawUnsafe('DELETE FROM "AuditLog";');
   await prisma.notification.deleteMany();
   await prisma.reminderRule.deleteMany();
   await prisma.discrepancy.deleteMany();
@@ -708,7 +708,7 @@ async function main() {
     },
   });
 
-  await prisma.releaseRequest.create({
+  const releaseRequest = await prisma.releaseRequest.create({
     data: {
       instrumentId: releaseInst.id,
       requestedById: instUsers[1].id,
@@ -810,16 +810,17 @@ async function main() {
     await prisma.notification.create({ data: n });
   }
 
-  // Seed Initial Audit Logs
+  // Seed Initial Audit Logs with plausible actions, real entity IDs, ordered timestamps, and existing actors
   console.log("📝 Seeding initial Audit Logs...");
   const auditEntries = [
     {
-      action: "LOGIN",
+      action: "LOGIN_SUCCESS",
       entity: "User",
-      entityId: demoUsers[0].id,
-      performedById: demoUsers[0].id,
-      ip: "10.0.1.42",
-      after: JSON.stringify({ email: demoUsers[0].email, role: "ADMIN" }),
+      entityId: instUsers[0].id,
+      performedById: instUsers[0].id,
+      ip: "192.168.1.10",
+      after: JSON.stringify({ email: instUsers[0].email, role: "INSTITUTION" }),
+      timestamp: new Date("2024-01-10T08:30:00.000Z"),
     },
     {
       action: "CREATE",
@@ -827,31 +828,71 @@ async function main() {
       entityId: mismatchInst.id,
       performedById: instUsers[0].id,
       ip: "192.168.1.10",
-      after: JSON.stringify({ referenceNumber: mismatchInst.referenceNumber, amount: mismatchInst.amount }),
+      after: JSON.stringify({ referenceNumber: mismatchInst.referenceNumber, amount: mismatchInst.amount, type: mismatchInst.type }),
+      timestamp: new Date("2024-01-10T09:15:00.000Z"),
+    },
+    {
+      action: "LOGOUT",
+      entity: "User",
+      entityId: instUsers[0].id,
+      performedById: instUsers[0].id,
+      ip: "192.168.1.10",
+      after: JSON.stringify({ email: instUsers[0].email, message: "User signed out successfully" }),
+      timestamp: new Date("2024-01-10T11:00:00.000Z"),
+    },
+    {
+      action: "LOGIN_SUCCESS",
+      entity: "User",
+      entityId: scrutinyLead.id,
+      performedById: scrutinyLead.id,
+      ip: "10.0.2.15",
+      after: JSON.stringify({ email: scrutinyLead.email, role: "SCRUTINY_OFFICER" }),
+      timestamp: new Date("2024-01-11T08:50:00.000Z"),
     },
     {
       action: "VERIFY",
       entity: "Instrument",
       entityId: mismatchInst.id,
-      performedById: demoUsers[2].id,
+      performedById: scrutinyLead.id,
       ip: "10.0.2.15",
-      after: JSON.stringify({ status: "MISMATCH", discrepancyCount: 1 }),
+      after: JSON.stringify({ status: "MISMATCH", discrepancyCount: 1, method: "MOCK_BANK_API" }),
+      timestamp: new Date("2024-01-11T09:05:00.000Z"),
     },
     {
       action: "CREATE",
       entity: "ReleaseRequest",
-      entityId: releaseInst.id,
+      entityId: releaseRequest.id,
       performedById: instUsers[1].id,
       ip: "192.168.2.22",
-      after: JSON.stringify({ instrument: releaseInst.referenceNumber, status: "SUBMITTED" }),
+      after: JSON.stringify({ instrumentId: releaseInst.id, referenceNumber: releaseInst.referenceNumber, status: "SUBMITTED" }),
+      timestamp: new Date("2024-01-12T14:20:00.000Z"),
     },
     {
-      action: "LOGIN",
+      action: "LOGIN_FAILED",
+      entity: "User",
+      entityId: demoUsers[0].id,
+      performedById: demoUsers[0].id,
+      ip: "203.0.113.55",
+      after: JSON.stringify({ email: demoUsers[0].email, reason: "Invalid credentials" }),
+      timestamp: new Date("2024-01-13T16:45:00.000Z"),
+    },
+    {
+      action: "LOGIN_SUCCESS",
+      entity: "User",
+      entityId: demoUsers[0].id,
+      performedById: demoUsers[0].id,
+      ip: "10.0.1.42",
+      after: JSON.stringify({ email: demoUsers[0].email, role: "ADMIN" }),
+      timestamp: new Date("2024-01-14T09:00:00.000Z"),
+    },
+    {
+      action: "LOGIN_SUCCESS",
       entity: "User",
       entityId: demoUsers[5].id,
       performedById: demoUsers[5].id,
       ip: "10.0.3.8",
       after: JSON.stringify({ email: demoUsers[5].email, role: "APPROVING_AUTHORITY" }),
+      timestamp: new Date("2024-01-14T10:15:00.000Z"),
     },
   ];
 

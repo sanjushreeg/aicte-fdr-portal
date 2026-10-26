@@ -21,7 +21,6 @@ describe("Append-Only AuditLog Enforcement", () => {
   });
 
   afterAll(async () => {
-    // Cleanup using base raw query if needed
     await (prisma as any).$disconnect();
   });
 
@@ -38,6 +37,29 @@ describe("Append-Only AuditLog Enforcement", () => {
     });
     expect(newLog.id).toBeDefined();
     expect(newLog.action).toBe("VERIFY");
+  });
+
+  it("should permit read operations (findMany, findUnique, findFirst) on AuditLog", async () => {
+    // Test findMany
+    const logs = await prisma.auditLog.findMany({
+      where: { id: createdLogId },
+    });
+    expect(logs.length).toBe(1);
+    expect(logs[0].id).toBe(createdLogId);
+
+    // Test findUnique
+    const uniqueLog = await prisma.auditLog.findUnique({
+      where: { id: createdLogId },
+    });
+    expect(uniqueLog).not.toBeNull();
+    expect(uniqueLog?.id).toBe(createdLogId);
+
+    // Test findFirst
+    const firstLog = await prisma.auditLog.findFirst({
+      where: { id: createdLogId },
+    });
+    expect(firstLog).not.toBeNull();
+    expect(firstLog?.id).toBe(createdLogId);
   });
 
   it("should throw error when attempting to update an AuditLog row", async () => {

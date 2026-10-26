@@ -178,8 +178,8 @@ model AuditLog {
   entityId      String
   before        String?  // serialized JSON
   after         String?  // serialized JSON
-  performedById String
-  performedBy   User     @relation(fields: [performedById], references: [id])
+  performedById String?
+  performedBy   User?    @relation(fields: [performedById], references: [id])
   ip            String
   timestamp     DateTime @default(now())
 }

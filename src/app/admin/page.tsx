@@ -55,7 +55,7 @@ export default async function AdminPage() {
                   <tr key={log.id}>
                     <td className="py-2.5 px-4 font-bold text-slate-900">{log.action}</td>
                     <td className="py-2.5 px-4 font-mono text-[11px]">{log.entity}</td>
-                    <td className="py-2.5 px-4">{log.performedBy.name}</td>
+                    <td className="py-2.5 px-4">{log.performedBy?.name || "System / Unauthenticated"}</td>
                     <td className="py-2.5 px-4 font-mono text-[11px] text-slate-500">{log.ip}</td>
                     <td className="py-2.5 px-4 text-slate-500 text-[11px]">
                       {new Date(log.timestamp).toLocaleString()}

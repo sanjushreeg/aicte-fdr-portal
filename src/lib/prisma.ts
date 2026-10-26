@@ -19,11 +19,7 @@ export const prisma = basePrisma.$extends({
       async delete() {
         throw new Error("AuditLog is append-only: DELETE operations are strictly prohibited.");
       },
-      async deleteMany({ args, query }) {
-        // Allow deleteMany ONLY during test suite resets when explicitly flagged
-        if (process.env.ALLOW_AUDIT_RESET === "true") {
-          return query(args);
-        }
+      async deleteMany() {
         throw new Error("AuditLog is append-only: DELETE_MANY operations are strictly prohibited.");
       },
       async upsert() {

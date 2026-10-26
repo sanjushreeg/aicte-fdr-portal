@@ -1,13 +1,25 @@
 import prisma from "./prisma";
 
 export interface CreateAuditLogParams {
-  action: "LOGIN" | "LOGOUT" | "CREATE" | "UPDATE" | "VERIFY" | "APPROVE" | "REJECT" | "DOWNLOAD";
+  action:
+    | "LOGIN_SUCCESS"
+    | "LOGIN_FAILED"
+    | "LOGOUT"
+    | "LOGIN"
+    | "CREATE"
+    | "UPDATE"
+    | "VERIFY"
+    | "APPROVE"
+    | "REJECT"
+    | "DOWNLOAD"
+    | string;
   entity: string;
   entityId: string;
   before?: any;
   after?: any;
-  performedById: string;
+  performedById?: string | null;
   ip?: string;
+  timestamp?: Date;
 }
 
 /**
@@ -24,8 +36,9 @@ export const AuditService = {
         entityId: params.entityId,
         before: params.before ? JSON.stringify(params.before) : null,
         after: params.after ? JSON.stringify(params.after) : null,
-        performedById: params.performedById,
+        performedById: params.performedById ?? undefined,
         ip: params.ip || "127.0.0.1",
+        ...(params.timestamp ? { timestamp: params.timestamp } : {}),
       },
     });
   },
