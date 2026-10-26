@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --aicte-navy: #0A1F44;
+  --aicte-saffron: #FF9933;
+  --aicte-green: #138808;
+}
