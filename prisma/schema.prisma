@@ -13,131 +13,143 @@ datasource db {
 // InstrumentStatuses: "SUBMITTED", "VERIFIED", "MISMATCH", "ACTIVE", "EXPIRING_SOON", "MATURED", "EXPIRED", "RENEWED", "REPLACED", "RELEASED", "REJECTED"
 
 model Institution {
-  id          String      @id @default(uuid())
-  aicteId     String      @unique
+  id          String       @id @default(uuid())
+  aicteId     String       @unique
   name        String
   state       String
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
   instruments Instrument[]
   users       User[]
 }
 
 model User {
-  id                 String           @id @default(uuid())
-  name               String           @default("User")
-  email              String           @unique
+  id                 String            @id @default(uuid())
+  name               String            @default("User")
+  email              String            @unique
   passwordHash       String
   role               String
   institutionId      String?
-  institution        Institution?     @relation(fields: [institutionId], references: [id])
-  createdInstruments Instrument[]     @relation("CreatedBy")
+  institution        Institution?      @relation(fields: [institutionId], references: [id])
+  createdInstruments Instrument[]      @relation("CreatedBy")
   uploadedVersions   DocumentVersion[] @relation("UploadedBy")
   notifications      Notification[]
   auditLogs          AuditLog[]
-  releaseRequests    ReleaseRequest[] @relation("RequestedBy")
-  observations       Observation[]    @relation("Officer")
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  releaseRequests    ReleaseRequest[]  @relation("RequestedBy")
+  observations       Observation[]     @relation("Officer")
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 }
 
 model Instrument {
-  id                String            @id @default(uuid())
-  type              String            // FDR, SECURITY_DEPOSIT
-  referenceNumber   String            // intentionally non-unique for duplicate detection
-  bankName          String
-  bankBranch        String
-  amount            Float
-  issueDate         DateTime
-  maturityDate      DateTime
-  status            String            @default("SUBMITTED")
-  institutionId     String
-  institution       Institution       @relation(fields: [institutionId], references: [id])
-  createdById       String
-  createdBy         User              @relation("CreatedBy", fields: [createdById], references: [id])
-  verifiedByBank    Boolean           @default(false)
-  parentId          String?
-  parent            Instrument?       @relation("RenewalChain", fields: [parentId], references: [id])
-  children          Instrument[]      @relation("RenewalChain")
-  documents         Document[]
-  verifications     Verification[]    // 1-to-many verification records
-  discrepancies     Discrepancy[]     // 1-to-many discrepancy records (single source of truth)
-  releaseRequests   ReleaseRequest[]
-  observations      Observation[]
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  id              String           @id @default(uuid())
+  type            String           // FDR, SECURITY_DEPOSIT
+  referenceNumber String           // intentionally non-unique for duplicate detection
+  bankName        String
+  bankBranch      String
+  amount          Float
+  issueDate       DateTime
+  maturityDate    DateTime
+  status          String           @default("SUBMITTED")
+  institutionId   String
+  institution     Institution      @relation(fields: [institutionId], references: [id])
+  createdById     String
+  createdBy       User             @relation("CreatedBy", fields: [createdById], references: [id])
+  verifiedByBank  Boolean          @default(false)
+  parentId        String?
+  parent          Instrument?      @relation("RenewalChain", fields: [parentId], references: [id])
+  children        Instrument[]     @relation("RenewalChain")
+  documents       Document[]
+  verifications   Verification[]   // 1-to-many verification records
+  discrepancies   Discrepancy[]    // 1-to-many discrepancy records (single source of truth)
+  releaseRequests ReleaseRequest[]
+  observations    Observation[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([status])
+  @@index([maturityDate])
+  @@index([institutionId])
 }
 
 model Document {
-  id           String            @id @default(uuid())
-  instrumentId String
-  instrument   Instrument        @relation(fields: [instrumentId], references: [id])
-  name         String
-  category     String            @default("FDR_COPY") // FDR_COPY, DEPOSIT_CONFIRMATION, BOARD_RESOLUTION, RENEWAL_LETTER
-  currentVersion Int             @default(1)
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  versions     DocumentVersion[]
+  id             String            @id @default(uuid())
+  instrumentId   String
+  instrument     Instrument        @relation(fields: [instrumentId], references: [id])
+  name           String
+  category       String            @default("FDR_COPY") // FDR_COPY, DEPOSIT_CONFIRMATION, BOARD_RESOLUTION, RENEWAL_LETTER
+  currentVersion Int               @default(1)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  versions       DocumentVersion[]
 }
 
 model DocumentVersion {
-  id           String      @id @default(uuid())
+  id           String   @id @default(uuid())
   documentId   String
-  document     Document    @relation(fields: [documentId], references: [id])
+  document     Document @relation(fields: [documentId], references: [id])
   version      Int
-  filePath     String      // encrypted storage path
-  mimeType     String      @default("application/pdf")
-  sizeBytes    Int         @default(0)
-  sha256       String      @default("")
+  filePath     String   // encrypted storage path
+  mimeType     String   @default("application/pdf")
+  sizeBytes    Int      @default(0)
+  sha256       String   @default("")
   uploadedById String
-  uploadedBy   User        @relation("UploadedBy", fields: [uploadedById], references: [id])
-  uploadedAt   DateTime    @default(now())
+  uploadedBy   User     @relation("UploadedBy", fields: [uploadedById], references: [id])
+  uploadedAt   DateTime @default(now())
+
+  @@unique([documentId, version])
 }
 
 model Verification {
-  id            String      @id @default(uuid())
+  id            String        @id @default(uuid())
   instrumentId  String
-  instrument    Instrument  @relation(fields: [instrumentId], references: [id])
-  requestedAt   DateTime    @default(now())
+  instrument    Instrument    @relation(fields: [instrumentId], references: [id])
+  requestedAt   DateTime      @default(now())
   completedAt   DateTime?
-  status        String      @default("SUCCESS") // SUCCESS, MISMATCH, BANK_UNREACHABLE, PENDING
-  bankData      String      // JSON string of confirmed bank data
-  source        String      @default("MOCK_CBS_ADAPTER") // MOCK_CBS_ADAPTER, DIRECT_API, MANUAL_CONFIRMATION
+  status        String        @default("SUCCESS") // SUCCESS, MISMATCH, BANK_UNREACHABLE, PENDING
+  bankData      String?       // JSON string of confirmed bank data (nullable)
+  source        String        @default("MOCK_BANK_API") // e.g. MOCK_BANK_API / MANUAL
+  requestedById String?
+  discrepancies Discrepancy[]
 }
 
 model Discrepancy {
-  id            String      @id @default(uuid())
-  instrumentId  String
-  instrument    Instrument  @relation(fields: [instrumentId], references: [id])
-  code          String      // AMOUNT_MISMATCH, DATE_INCONSISTENCY, DUPLICATE_FDR, MISSING_DOCUMENT, EXPIRED_INSTRUMENT
-  severity      String      @default("high") // low, medium, high, critical
-  status        String      @default("OPEN") // OPEN, RESOLVED, WAIVED
-  details       String      // JSON details of discrepancy
-  detectedAt    DateTime    @default(now())
-  resolvedAt    DateTime?
-  resolvedById  String?
+  id             String        @id @default(uuid())
+  instrumentId   String
+  instrument     Instrument    @relation(fields: [instrumentId], references: [id])
+  verificationId String?
+  verification   Verification? @relation(fields: [verificationId], references: [id])
+  code           String        // AMOUNT_MISMATCH, DATE_INCONSISTENCY, DUPLICATE_FDR, MISSING_DOCUMENT, EXPIRED_INSTRUMENT
+  severity       String        @default("high") // low, medium, high, critical
+  status         String        @default("OPEN") // OPEN, RESOLVED, WAIVED
+  details        String        // JSON details of discrepancy
+  detectedAt     DateTime      @default(now())
+  resolvedAt     DateTime?
+  resolvedById   String?
+
+  @@index([status])
 }
 
 model ReleaseRequest {
-  id               String      @id @default(uuid())
-  instrumentId     String
-  instrument       Instrument  @relation(fields: [instrumentId], references: [id])
-  requestedById    String
-  requestedBy      User        @relation("RequestedBy", fields: [requestedById], references: [id])
-  status           String      @default("SUBMITTED")
-  remarks          String?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-}
-
-model Observation {
   id            String     @id @default(uuid())
   instrumentId  String
   instrument    Instrument @relation(fields: [instrumentId], references: [id])
-  officerId     String
-  officer       User       @relation("Officer", fields: [officerId], references: [id])
-  note          String
+  requestedById String
+  requestedBy   User       @relation("RequestedBy", fields: [requestedById], references: [id])
+  status        String     @default("SUBMITTED")
+  remarks       String?
   createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model Observation {
+  id           String     @id @default(uuid())
+  instrumentId String
+  instrument   Instrument @relation(fields: [instrumentId], references: [id])
+  officerId    String
+  officer      User       @relation("Officer", fields: [officerId], references: [id])
+  note         String
+  createdAt    DateTime   @default(now())
 }
 
 model Notification {
@@ -151,12 +163,12 @@ model Notification {
 }
 
 model ReminderRule {
-  id                String   @id @default(uuid())
-  daysBefore        Int      // 90, 60, 30, 15, 7
-  channel           String   @default("IN_APP_EMAIL") // IN_APP, EMAIL, SMS, IN_APP_EMAIL
-  escalateAfterDays Int      @default(7) // days before escalating to higher authority
-  escalateToRole    String   @default("APPROVING_AUTHORITY") // Role to escalate to
-  enabled           Boolean  @default(true)
+  id                String  @id @default(uuid())
+  daysBefore        Int     // 90, 60, 30, 15, 7
+  channel           String  @default("IN_APP_EMAIL") // IN_APP, EMAIL, SMS, IN_APP_EMAIL
+  escalateAfterDays Int     @default(7) // days before escalating to higher authority
+  escalateToRole    String  @default("APPROVING_AUTHORITY") // Role to escalate to
+  enabled           Boolean @default(true)
 }
 
 model AuditLog {

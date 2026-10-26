@@ -109,18 +109,90 @@ async function main() {
     { name: "Bank of Baroda", branch: "Baroda Mandvi Branch" }
   ];
 
-  const statuses = [
-    "SUBMITTED", "VERIFIED", "MISMATCH", "ACTIVE",
-    "EXPIRING_SOON", "MATURED", "EXPIRED", "RENEWED",
-    "REPLACED", "RELEASED", "REJECTED"
+  // Target Distribution across 130 total instruments:
+  // ACTIVE: 52 (40%), EXPIRING_SOON: 16 (12%), SUBMITTED: 15 (12%), VERIFIED: 13 (10%),
+  // MISMATCH: 10 (8%), RENEWED: 8 (6%), RELEASED: 7 (5%), MATURED: 4 (3%),
+  // EXPIRED: 3 (2%), REPLACED: 1 (1%), REJECTED: 1 (1%) -> Total: 130.
+  //
+  // Planted 10 instruments breakdown:
+  // - 1 MISMATCH: FDR-MISMATCH-2026
+  // - 3 EXPIRING_SOON: 7D, 30D, 90D
+  // - 2 SUBMITTED: FDR-DUP-999888 (Bihar), FDR-MISSING-DOC-FLAG
+  // - 3 ACTIVE: FDR-DUP-999888 (Assam), FDR-RENEWED-CHAIN-002, SEC-DEP-RELEASE-PENDING-99
+  // - 1 RENEWED: FDR-ORIG-CHAIN-001
+  //
+  // Remaining 120 baseline instruments breakdown:
+  // ACTIVE: 49, EXPIRING_SOON: 13, SUBMITTED: 13, VERIFIED: 13, MISMATCH: 9,
+  // RENEWED: 7, RELEASED: 7, MATURED: 4, EXPIRED: 3, REPLACED: 1, REJECTED: 1 -> Total: 120.
+
+  const baselineStatuses = [
+    ...Array(49).fill("ACTIVE"),
+    ...Array(13).fill("EXPIRING_SOON"),
+    ...Array(13).fill("SUBMITTED"),
+    ...Array(13).fill("VERIFIED"),
+    ...Array(9).fill("MISMATCH"),
+    ...Array(7).fill("RENEWED"),
+    ...Array(7).fill("RELEASED"),
+    ...Array(4).fill("MATURED"),
+    ...Array(3).fill("EXPIRED"),
+    ...Array(1).fill("REPLACED"),
+    ...Array(1).fill("REJECTED"),
   ];
 
-  console.log("📜 Creating 120 baseline instruments with Document and DocumentVersion...");
+  // Interleave statuses smoothly across the 120 items
+  const interleavedStatuses = [];
+  const activePool = baselineStatuses.filter(s => s === "ACTIVE");
+  const otherPool = baselineStatuses.filter(s => s !== "ACTIVE");
+  for (let i = 0; i < 120; i++) {
+    if (i % 2 === 0 && activePool.length > 0) {
+      interleavedStatuses.push(activePool.pop());
+    } else if (otherPool.length > 0) {
+      interleavedStatuses.push(otherPool.pop());
+    } else {
+      interleavedStatuses.push(activePool.pop());
+    }
+  }
+
   const instAdmin = demoUsers[0];
   const instUsers = demoUsers.filter(u => u.role === "INSTITUTION");
+  const scrutinyLead = demoUsers[2];
+  const scrutinyOfficer = demoUsers[3];
 
-  const createdInstruments = [];
   const now = new Date();
+
+  function getMaturityDate(status, idx) {
+    switch (status) {
+      case "MATURED":
+        return new Date(now.getTime() - (5 + (idx % 45)) * 24 * 60 * 60 * 1000);
+      case "EXPIRED":
+        return new Date(now.getTime() - (60 + (idx % 180)) * 24 * 60 * 60 * 1000);
+      case "RENEWED":
+        return new Date(now.getTime() - (30 + (idx % 120)) * 24 * 60 * 60 * 1000);
+      case "RELEASED":
+        return new Date(now.getTime() - (15 + (idx % 90)) * 24 * 60 * 60 * 1000);
+      case "REPLACED":
+        return new Date(now.getTime() - (25 + (idx % 60)) * 24 * 60 * 60 * 1000);
+      case "EXPIRING_SOON":
+        // strictly within warning window 7 to 85 days in future
+        return new Date(now.getTime() + (10 + (idx % 75)) * 24 * 60 * 60 * 1000);
+      case "SUBMITTED":
+        return new Date(now.getTime() + (365 + (idx % 500)) * 24 * 60 * 60 * 1000);
+      case "VERIFIED":
+        return new Date(now.getTime() + (200 + (idx % 600)) * 24 * 60 * 60 * 1000);
+      case "MISMATCH":
+        return new Date(now.getTime() + (250 + (idx % 400)) * 24 * 60 * 60 * 1000);
+      case "REJECTED":
+        return new Date(now.getTime() + (180 + (idx % 180)) * 24 * 60 * 60 * 1000);
+      case "ACTIVE":
+      default:
+        // Future, safely above 90-day threshold
+        return new Date(now.getTime() + (100 + (idx % 900)) * 24 * 60 * 60 * 1000);
+    }
+  }
+
+  console.log("📜 Creating 120 baseline instruments with Document and DocumentVersion...");
+  const createdInstruments = [];
+  let mismatchCount = 0;
 
   for (let i = 0; i < 120; i++) {
     const institution = institutions[i % institutions.length];
@@ -130,18 +202,9 @@ async function main() {
     const refNum = `FDR-${2024000 + i}`;
     const amount = 500000 + (i * 25000) % 4500000;
     
-    let status = statuses[i % statuses.length];
-    const issueDate = new Date(now.getTime() - (365 + (i * 10)) * 24 * 60 * 60 * 1000);
-    let maturityDate;
-
-    if (status === "MATURED" || status === "EXPIRED") {
-      maturityDate = new Date(now.getTime() - (15 + (i % 60)) * 24 * 60 * 60 * 1000);
-    } else if (status === "EXPIRING_SOON") {
-      maturityDate = new Date(now.getTime() + (20 + (i % 60)) * 24 * 60 * 60 * 1000);
-    } else {
-      maturityDate = new Date(now.getTime() + (180 + (i * 15)) * 24 * 60 * 60 * 1000);
-    }
-
+    const status = interleavedStatuses[i];
+    const maturityDate = getMaturityDate(status, i);
+    const issueDate = new Date(maturityDate.getTime() - (365 + (i * 10) % 730) * 24 * 60 * 60 * 1000);
     const verifiedByBank = (status === "VERIFIED" || status === "MISMATCH" || status === "ACTIVE");
 
     const inst = await prisma.instrument.create({
@@ -162,17 +225,17 @@ async function main() {
 
     createdInstruments.push(inst);
 
-    // Create Document record
+    // Document and DocumentVersion: v1 for every document, v2 for ~10% (12 out of 120)
+    const hasV2 = (i % 10 === 0);
     const doc = await prisma.document.create({
       data: {
         instrumentId: inst.id,
         name: `${type}_Certificate_${refNum}.pdf`,
-        category: "FDR_COPY",
-        currentVersion: 1,
+        category: type === "SECURITY_DEPOSIT" ? "DEPOSIT_CONFIRMATION" : "FDR_COPY",
+        currentVersion: hasV2 ? 2 : 1,
       },
     });
 
-    // Create DocumentVersion record
     await prisma.documentVersion.create({
       data: {
         documentId: doc.id,
@@ -182,24 +245,95 @@ async function main() {
         sizeBytes: 245000 + (i * 1234) % 500000,
         sha256: `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85${i % 10}`,
         uploadedById: assignedCreator.id,
+        uploadedAt: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
       },
     });
 
-    // If verified or active, add verification record
-    if (verifiedByBank) {
-      await prisma.verification.create({
+    if (hasV2) {
+      await prisma.documentVersion.create({
+        data: {
+          documentId: doc.id,
+          version: 2,
+          filePath: `/encrypted/vault/${inst.id}/${refNum}_v2_endorsed.pdf`,
+          mimeType: "application/pdf",
+          sizeBytes: 268000 + (i * 1234) % 500000,
+          sha256: `f4c1d55309fd2d250bfcf5d9007fc03538bf52f5750ca45db506002c8963c96${i % 10}`,
+          uploadedById: assignedCreator.id,
+          uploadedAt: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000),
+        },
+      });
+    }
+
+    // Verification rows: 1 to 3 per verified or mismatched instrument
+    if (status === "VERIFIED") {
+      const verifCount = 1 + (i % 3); // 1, 2, or 3
+      for (let v = 1; v <= verifCount; v++) {
+        await prisma.verification.create({
+          data: {
+            instrumentId: inst.id,
+            requestedAt: new Date(now.getTime() - (10 - v * 2) * 24 * 60 * 60 * 1000),
+            completedAt: new Date(now.getTime() - (9 - v * 2) * 24 * 60 * 60 * 1000),
+            status: "SUCCESS",
+            source: v === 2 ? "MANUAL" : "MOCK_BANK_API",
+            requestedById: v === 2 ? scrutinyOfficer.id : scrutinyLead.id,
+            bankData: JSON.stringify({
+              referenceNumber: refNum,
+              bankName: bank.name,
+              branch: bank.branch,
+              confirmedAmount: amount,
+              status: "ACTIVE_IN_CORE_BANKING",
+              verificationCycle: v,
+            }),
+          },
+        });
+      }
+    } else if (status === "MISMATCH") {
+      const verifCount = 1 + (i % 3); // 1, 2, or 3
+      let lastVerifId = null;
+      for (let v = 1; v <= verifCount; v++) {
+        const verif = await prisma.verification.create({
+          data: {
+            instrumentId: inst.id,
+            requestedAt: new Date(now.getTime() - (12 - v * 3) * 24 * 60 * 60 * 1000),
+            completedAt: new Date(now.getTime() - (11 - v * 3) * 24 * 60 * 60 * 1000),
+            status: "MISMATCH",
+            source: "MOCK_BANK_API",
+            requestedById: scrutinyLead.id,
+            bankData: JSON.stringify({
+              referenceNumber: refNum,
+              bankName: bank.name,
+              confirmedAmount: amount - 75000,
+              reportedVariance: -75000,
+              verificationCycle: v,
+            }),
+          },
+        });
+        lastVerifId = verif.id;
+      }
+
+      // Create Discrepancy row derived from mismatch, with some RESOLVED
+      // We have 9 baseline mismatches; resolve 4 of them (even indices)
+      mismatchCount++;
+      const isResolved = (mismatchCount % 2 === 0);
+      const discrepancyCode = mismatchCount % 3 === 0 ? "AMOUNT_MISMATCH" : (mismatchCount % 3 === 1 ? "DATE_INCONSISTENCY" : "BRANCH_CODE_MISMATCH");
+      const severity = mismatchCount % 3 === 0 ? "high" : (mismatchCount % 3 === 1 ? "medium" : "low");
+
+      await prisma.discrepancy.create({
         data: {
           instrumentId: inst.id,
-          requestedAt: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
-          completedAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
-          status: status === "MISMATCH" ? "MISMATCH" : "SUCCESS",
-          source: "MOCK_CBS_ADAPTER",
-          bankData: JSON.stringify({
-            referenceNumber: refNum,
-            bankName: bank.name,
-            confirmedAmount: amount,
-            status: "VERIFIED_ACTIVE",
+          verificationId: lastVerifId,
+          code: discrepancyCode,
+          severity: severity,
+          status: isResolved ? "RESOLVED" : "OPEN",
+          details: JSON.stringify({
+            field: discrepancyCode === "AMOUNT_MISMATCH" ? "amount" : "metadata",
+            submittedAmount: amount,
+            confirmedAmount: amount - 75000,
+            resolutionSummary: isResolved ? "Bank reconciliation addendum verified and approved by scrutiny officer" : null,
           }),
+          detectedAt: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000),
+          resolvedAt: isResolved ? new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000) : null,
+          resolvedById: isResolved ? scrutinyOfficer.id : null,
         },
       });
     }
@@ -207,7 +341,7 @@ async function main() {
 
   console.log("🌱 Planting required explicit edge cases...");
 
-  // Case 1: Amount mismatch with bank verification and discrepancy record
+  // Case 1: Amount mismatch with bank verification and discrepancy record (25L vs 20L)
   const mismatchInst = await prisma.instrument.create({
     data: {
       type: "FDR",
@@ -242,6 +376,7 @@ async function main() {
       sizeBytes: 312000,
       sha256: "a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
       uploadedById: instUsers[0].id,
+      uploadedAt: new Date("2024-01-10T12:00:00Z"),
     },
   });
 
@@ -249,10 +384,29 @@ async function main() {
   await prisma.verification.create({
     data: {
       instrumentId: mismatchInst.id,
+      requestedAt: new Date("2024-01-11T09:00:00Z"),
+      completedAt: new Date("2024-01-11T09:05:00Z"),
+      status: "MISMATCH",
+      source: "MOCK_BANK_API",
+      requestedById: scrutinyLead.id,
+      bankData: JSON.stringify({
+        referenceNumber: "FDR-MISMATCH-2026",
+        bankName: "State Bank of India",
+        confirmedAmount: 2000000.0,
+        status: "ACTIVE_IN_CORE_BANKING",
+        verificationApi: "SBI_CBS_V2_MOCK",
+      }),
+    },
+  });
+
+  const mismatchVerif2 = await prisma.verification.create({
+    data: {
+      instrumentId: mismatchInst.id,
       requestedAt: new Date("2024-01-12T10:00:00Z"),
       completedAt: new Date("2024-01-12T10:05:00Z"),
       status: "MISMATCH",
-      source: "MOCK_CBS_ADAPTER",
+      source: "MOCK_BANK_API",
+      requestedById: scrutinyLead.id,
       bankData: JSON.stringify({
         referenceNumber: "FDR-MISMATCH-2026",
         bankName: "State Bank of India",
@@ -269,6 +423,7 @@ async function main() {
   await prisma.discrepancy.create({
     data: {
       instrumentId: mismatchInst.id,
+      verificationId: mismatchVerif2.id,
       code: "AMOUNT_MISMATCH",
       severity: "critical",
       status: "OPEN",
@@ -279,6 +434,7 @@ async function main() {
         variance: -500000.0,
         description: "Submitted amount exceeds core banking deposit by INR 5,00,000.00",
       }),
+      detectedAt: new Date("2024-01-12T10:05:00Z"),
     },
   });
 
@@ -320,11 +476,12 @@ async function main() {
         sizeBytes: 198000,
         sha256: `c1c2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef${days}`,
         uploadedById: instUsers[1].id,
+        uploadedAt: new Date(now.getTime() - 100 * 24 * 60 * 60 * 1000),
       },
     });
   }
 
-  // Case 3: Duplicate FDR number pair
+  // Case 3: Duplicate FDR number pair across institutions
   const duplicateFdrNumber = "FDR-DUP-999888";
   const dupInst1 = await prisma.instrument.create({
     data: {
@@ -346,6 +503,7 @@ async function main() {
       instrumentId: dupInst1.id,
       name: "FDR_Original_Assam.pdf",
       category: "FDR_COPY",
+      currentVersion: 1,
     },
   });
   await prisma.documentVersion.create({
@@ -354,6 +512,7 @@ async function main() {
       version: 1,
       filePath: `/encrypted/vault/${dupInst1.id}/assam_v1.pdf`,
       uploadedById: instUsers[2].id,
+      uploadedAt: new Date("2023-05-15T10:00:00Z"),
     },
   });
 
@@ -377,6 +536,7 @@ async function main() {
       instrumentId: dupInst2.id,
       name: "FDR_Submitted_Bihar.pdf",
       category: "FDR_COPY",
+      currentVersion: 1,
     },
   });
   await prisma.documentVersion.create({
@@ -385,6 +545,7 @@ async function main() {
       version: 1,
       filePath: `/encrypted/vault/${dupInst2.id}/bihar_v1.pdf`,
       uploadedById: instUsers[3].id,
+      uploadedAt: new Date("2023-06-20T10:00:00Z"),
     },
   });
 
@@ -400,6 +561,7 @@ async function main() {
         duplicateWithInstitution: institutions[2].name,
         description: `Duplicate FDR reference number detected! Already registered under ${institutions[2].name}`,
       }),
+      detectedAt: new Date("2023-06-21T10:00:00Z"),
     },
   });
 
@@ -431,6 +593,7 @@ async function main() {
         field: "documents",
         description: "Mandatory deposit receipt copy not uploaded",
       }),
+      detectedAt: new Date("2024-03-02T10:00:00Z"),
     },
   });
 
@@ -464,6 +627,7 @@ async function main() {
       version: 1,
       filePath: `/encrypted/vault/${origInst.id}/chain_orig_v1.pdf`,
       uploadedById: instUsers[0].id,
+      uploadedAt: new Date("2021-08-01T10:00:00Z"),
     },
   });
   await prisma.documentVersion.create({
@@ -472,6 +636,7 @@ async function main() {
       version: 2,
       filePath: `/encrypted/vault/${origInst.id}/chain_orig_v2_notarized.pdf`,
       uploadedById: instUsers[0].id,
+      uploadedAt: new Date("2023-01-15T10:00:00Z"),
     },
   });
 
@@ -505,6 +670,7 @@ async function main() {
       version: 1,
       filePath: `/encrypted/vault/${renewedInst.id}/renewal_receipt_v1.pdf`,
       uploadedById: instUsers[0].id,
+      uploadedAt: new Date("2024-08-01T10:00:00Z"),
     },
   });
 
@@ -538,6 +704,7 @@ async function main() {
       version: 1,
       filePath: `/encrypted/vault/${releaseInst.id}/sec_v1.pdf`,
       uploadedById: instUsers[1].id,
+      uploadedAt: new Date("2018-09-01T10:00:00Z"),
     },
   });
 
@@ -692,7 +859,7 @@ async function main() {
     await prisma.auditLog.create({ data: a });
   }
 
-  console.log("✅ Seed completed successfully with DocumentVersion, multi-verification, and extended ReminderRules!");
+  console.log("✅ Seed completed successfully with realistic status distribution, DocumentVersions, multi-verifications, and Discrepancies!");
 }
 
 main()
