@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { signIn, useSession } from "next-auth/react";
 import { useState, useEffect } from "react";
@@ -166,7 +166,6 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
               />
-              <p className="mt-1 text-[11px] text-slate-400">All demo accounts use password: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-600">Password123</code></p>
             </div>
 
             <button
