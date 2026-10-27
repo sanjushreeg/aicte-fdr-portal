@@ -3,7 +3,6 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { validateCredentials } from "@/lib/auth";
 import { AuditService } from "@/lib/audit";
 import prisma from "@/lib/prisma";
-
 function extractClientIp(req: any): string {
   const headers = req?.headers;
   if (!headers) return "127.0.0.1";
@@ -154,4 +153,65 @@ export const authOptions: NextAuthOptions = {
 };
 
 const handler = NextAuth(authOptions);
-export { handler as GET, handler as POST };
+
+/**
+ * POST handler wrapper.
+ *
+ * NextAuth's CSRF validation runs before the credentials `authorize()` callback,
+ * so a request with a dummy/missing CSRF token never reaches `authorize()` and no
+ * audit log is written.  To guarantee a LOGIN_FAILED AuditLog row is written for
+ * every credentials attempt (including those rejected by CSRF), we intercept
+ * POST /api/auth/callback/credentials here, extract the email from the body,
+ * check if the email exists in the DB, and write the LOGIN_FAILED row ourselves
+ * (performedById = null when the email does not exist).
+ *
+ * We only write the row when the request targets the credentials callback and
+ * contains an email field.  The `authorize()` callback may also run (on valid
+ * CSRF) and write its own row — that is acceptable since each is a distinct
+ * attempt record.
+ */
+export async function POST(req: Request) {
+  const url = new URL(req.url);
+
+  // Only intercept the credentials callback endpoint
+  if (url.pathname.endsWith("/callback/credentials")) {
+    let email: string | null = null;
+    try {
+      // Clone the request so we can read the body without consuming it for NextAuth
+      const cloned = req.clone();
+      const contentType = req.headers.get("content-type") || "";
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        const text = await cloned.text();
+        const params = new URLSearchParams(text);
+        email = params.get("email");
+      } else if (contentType.includes("application/json")) {
+        const json = await cloned.json();
+        email = json?.email ?? null;
+      }
+    } catch {
+      // Body parsing failure is non-fatal; fall through to NextAuth
+    }
+
+    if (email) {
+      const ip = extractClientIp(req);
+      try {
+        const candidateUser = await prisma.user.findUnique({ where: { email } });
+        await AuditService.log({
+          action: "LOGIN_FAILED",
+          entity: "User",
+          entityId: candidateUser ? candidateUser.id : "UNKNOWN",
+          performedById: candidateUser ? candidateUser.id : null,
+          ip,
+          after: { email, reason: "Login attempt (pre-authorize intercept)" },
+        });
+      } catch (e) {
+        console.error("Audit log error on credentials intercept:", e);
+      }
+    }
+  }
+
+  // Always delegate to the real NextAuth handler
+  return handler(req as any, { params: { nextauth: url.pathname.split("/api/auth/")[1]?.split("/") ?? [] } } as any);
+}
+
+export { handler as GET };

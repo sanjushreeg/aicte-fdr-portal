@@ -14,16 +14,21 @@ import { requireAuth } from "@/lib/serverAuth";
  *   - auditLogs for this instrument
  *
  * Institution users get 403 if instrument belongs to another institution.
+ *
+ * Next.js 15+/16: params is a Promise and must be awaited before use.
  */
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { error, user } = await requireAuth(req);
   if (error) return error;
 
+  // In Next.js 15+/16 the second argument's params is a Promise — await it.
+  const { id } = await params;
+
   const instrument = await prisma.instrument.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       institution: {
         select: { id: true, aicteId: true, name: true, state: true },
