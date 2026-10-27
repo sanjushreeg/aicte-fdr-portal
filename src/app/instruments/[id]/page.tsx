@@ -65,7 +65,38 @@ export default function InstrumentDetailPage() {
   const [submittingResolve, setSubmittingResolve] = useState(false);
   const [resolveError, setResolveError] = useState("");
 
-  const isInstitution = (session?.user as any)?.role === "INSTITUTION";
+  // Renewal state
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [renewRefNum, setRenewRefNum] = useState("");
+  const [renewMaturityDate, setRenewMaturityDate] = useState("");
+  const [renewAmount, setRenewAmount] = useState("");
+  const [renewing, setRenewing] = useState(false);
+  const [renewError, setRenewError] = useState("");
+
+  // Release state
+  const [showReleaseModal, setShowReleaseModal] = useState(false);
+  const [releaseRemarks, setReleaseRemarks] = useState("");
+  const [requestingRelease, setRequestingRelease] = useState(false);
+  const [releaseError, setReleaseError] = useState("");
+
+  // Scrutiny Review state
+  const [showScrutinyModal, setShowScrutinyModal] = useState(false);
+  const [checkOriginalFdr, setCheckOriginalFdr] = useState(false);
+  const [checkNoDues, setCheckNoDues] = useState(false);
+  const [checkLockin, setCheckLockin] = useState(false);
+  const [scrutinyRemarks, setScrutinyRemarks] = useState("");
+  const [submittingScrutiny, setSubmittingScrutiny] = useState(false);
+
+  // Authority Approval / Rejection state
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectNote, setRejectNote] = useState("");
+  const [submittingReject, setSubmittingReject] = useState(false);
+  const [submittingFinalApprove, setSubmittingFinalApprove] = useState(false);
+
+  const user = session?.user as any;
+  const role = user?.role;
+  const isInstitution = role === "INSTITUTION";
+  const isAdmin = role === "ADMIN";
 
   const fetchInstrument = async () => {
     if (!id) return;
@@ -136,6 +167,141 @@ export default function InstrumentDetailPage() {
       setResolveError(err.message || "Failed to resolve discrepancy");
     } finally {
       setSubmittingResolve(false);
+    }
+  };
+
+  const handleOpenRenewModal = () => {
+    if (data?.instrument) {
+      setRenewRefNum(`${data.instrument.referenceNumber}-R1`);
+      setRenewAmount(String(data.instrument.amount));
+      const nextYear = new Date(data.instrument.maturityDate);
+      nextYear.setFullYear(nextYear.getFullYear() + 1);
+      setRenewMaturityDate(nextYear.toISOString().slice(0, 10));
+    }
+    setRenewError("");
+    setShowRenewModal(true);
+  };
+
+  const handleRenewSubmit = async () => {
+    if (!renewRefNum.trim() || !renewMaturityDate) {
+      setRenewError("Reference number and maturity date are required.");
+      return;
+    }
+    setRenewing(true);
+    setRenewError("");
+    try {
+      const res = await fetch(`/api/instruments/${id}/renew`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          referenceNumber: renewRefNum.trim(),
+          maturityDate: renewMaturityDate,
+          amount: renewAmount ? parseFloat(renewAmount) : undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setShowRenewModal(false);
+      router.push(`/instruments/${json.newInstrument.id}`);
+    } catch (err: any) {
+      setRenewError(err?.message || "Failed to renew instrument");
+    } finally {
+      setRenewing(false);
+    }
+  };
+
+  const handleReleaseRequestSubmit = async () => {
+    setRequestingRelease(true);
+    setReleaseError("");
+    try {
+      const res = await fetch(`/api/instruments/${id}/release-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remarks: releaseRemarks.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setShowReleaseModal(false);
+      setReleaseRemarks("");
+      await fetchInstrument();
+      setVerifyMsg({ type: "success", text: "Release request submitted successfully." });
+    } catch (err: any) {
+      setReleaseError(err?.message || "Failed to submit release request");
+    } finally {
+      setRequestingRelease(false);
+    }
+  };
+
+  const handleScrutinyApproveSubmit = async () => {
+    if (!checkOriginalFdr || !checkNoDues || !checkLockin) {
+      setReleaseError("All 3 checklist requirements must be confirmed true.");
+      return;
+    }
+    setSubmittingScrutiny(true);
+    setReleaseError("");
+    try {
+      const res = await fetch(`/api/instruments/${id}/release-action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "SCRUTINY_APPROVE",
+          checklist: [checkOriginalFdr, checkNoDues, checkLockin],
+          remarks: scrutinyRemarks.trim(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setShowScrutinyModal(false);
+      await fetchInstrument();
+      setVerifyMsg({ type: "success", text: "Scrutiny approval recorded. Forwarded to Approving Authority." });
+    } catch (err: any) {
+      setReleaseError(err?.message || "Failed to submit scrutiny approval");
+    } finally {
+      setSubmittingScrutiny(false);
+    }
+  };
+
+  const handleFinalApproveSubmit = async () => {
+    setSubmittingFinalApprove(true);
+    try {
+      const res = await fetch(`/api/instruments/${id}/release-action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "FINAL_APPROVE" }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      await fetchInstrument();
+      setVerifyMsg({ type: "success", text: "Final approval granted. Instrument released successfully." });
+    } catch (err: any) {
+      setVerifyMsg({ type: "error", text: err?.message || "Failed to grant final approval" });
+    } finally {
+      setSubmittingFinalApprove(false);
+    }
+  };
+
+  const handleRejectSubmit = async () => {
+    if (!rejectNote.trim()) {
+      setReleaseError("A rejection note is required.");
+      return;
+    }
+    setSubmittingReject(true);
+    try {
+      const res = await fetch(`/api/instruments/${id}/release-action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "REJECT", note: rejectNote.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setShowRejectModal(false);
+      setRejectNote("");
+      await fetchInstrument();
+      setVerifyMsg({ type: "success", text: "Release request rejected." });
+    } catch (err: any) {
+      setReleaseError(err?.message || "Failed to reject release request");
+    } finally {
+      setSubmittingReject(false);
     }
   };
 
@@ -253,8 +419,9 @@ export default function InstrumentDetailPage() {
                 <DaysToMaturityBadge days={inst.daysToMaturity} />
               </div>
 
-              {!isInstitution && (
-                <div className="mt-3">
+              <div className="mt-3 flex items-center justify-end gap-2 flex-wrap">
+                {/* 1. Verification Trigger */}
+                {!isInstitution && (
                   <button
                     onClick={handleRunVerification}
                     disabled={verifying}
@@ -272,8 +439,110 @@ export default function InstrumentDetailPage() {
                       </>
                     )}
                   </button>
-                </div>
-              )}
+                )}
+
+                {/* 2. Renewal Trigger */}
+                {(isAdmin || (isInstitution && user?.institutionId === inst.institutionId)) &&
+                  inst.status !== "RENEWED" && (
+                    <button
+                      onClick={handleOpenRenewModal}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-xs"
+                    >
+                      <span>🔄</span>
+                      <span>Renew</span>
+                    </button>
+                  )}
+
+                {/* 3. Release Triggers by Role */}
+                {/* Institution Owner: Request Release */}
+                {isInstitution && user?.institutionId === inst.institutionId && (
+                  <>
+                    {inst.releaseRequests?.find((r: any) =>
+                      ["PENDING_SCRUTINY", "SCRUTINY_APPROVED", "SUBMITTED"].includes(r.status)
+                    ) ? (
+                      <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-100 text-amber-800 border border-amber-200">
+                        Release:{" "}
+                        {
+                          inst.releaseRequests.find((r: any) =>
+                            ["PENDING_SCRUTINY", "SCRUTINY_APPROVED", "SUBMITTED"].includes(r.status)
+                          ).status
+                        }
+                      </span>
+                    ) : (
+                      inst.status !== "RELEASED" && (
+                        <button
+                          onClick={() => {
+                            setReleaseError("");
+                            setReleaseRemarks("");
+                            setShowReleaseModal(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-xs"
+                        >
+                          <span>🔓</span>
+                          <span>Request Release</span>
+                        </button>
+                      )
+                    )}
+                  </>
+                )}
+
+                {/* Scrutiny Officer: Scrutiny Approve or Reject */}
+                {(role === "SCRUTINY_OFFICER" || isAdmin) &&
+                  inst.releaseRequests?.find((r: any) =>
+                    ["PENDING_SCRUTINY", "SUBMITTED"].includes(r.status)
+                  ) && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => {
+                          setCheckOriginalFdr(false);
+                          setCheckNoDues(false);
+                          setCheckLockin(false);
+                          setScrutinyRemarks("");
+                          setReleaseError("");
+                          setShowScrutinyModal(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 text-white hover:bg-purple-700 transition shadow-xs"
+                      >
+                        <span>📋</span>
+                        <span>Scrutiny Review</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setRejectNote("");
+                          setReleaseError("");
+                          setShowRejectModal(true);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  )}
+
+                {/* Approving Authority: Final Approve or Reject */}
+                {(role === "APPROVING_AUTHORITY" || isAdmin) &&
+                  inst.releaseRequests?.find((r: any) => r.status === "SCRUTINY_APPROVED") && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={handleFinalApproveSubmit}
+                        disabled={submittingFinalApprove}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-700 text-white hover:bg-emerald-800 disabled:opacity-50 transition shadow-xs"
+                      >
+                        {submittingFinalApprove ? "Approving…" : "Final Approve Release"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setRejectNote("");
+                          setReleaseError("");
+                          setShowRejectModal(true);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  )}
+              </div>
             </div>
           </div>
         </div>
@@ -820,6 +1089,259 @@ export default function InstrumentDetailPage() {
             </div>
           )}
         </div>
+
+        {/* ── Modals: Renew, Release, Scrutiny Review, Reject ── */}
+
+        {/* 1. Renew Modal */}
+        {showRenewModal && (
+          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+              <h4 className="text-base font-bold text-slate-900 mb-1">Renew Deposit / FDR</h4>
+              <p className="text-xs text-slate-500 mb-4">
+                Creates a new continuation instrument chained to parent #{inst.referenceNumber} and sets
+                the current one to RENEWED.
+              </p>
+
+              {renewError && (
+                <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs">
+                  {renewError}
+                </div>
+              )}
+
+              <div className="space-y-3 mb-4">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    New Reference Number
+                  </label>
+                  <input
+                    type="text"
+                    value={renewRefNum}
+                    onChange={(e) => setRenewRefNum(e.target.value)}
+                    placeholder="e.g. FDR-2024001-R1"
+                    className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    New Maturity Date
+                  </label>
+                  <input
+                    type="date"
+                    value={renewMaturityDate}
+                    onChange={(e) => setRenewMaturityDate(e.target.value)}
+                    className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Amount (₹ INR)
+                  </label>
+                  <input
+                    type="number"
+                    value={renewAmount}
+                    onChange={(e) => setRenewAmount(e.target.value)}
+                    className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowRenewModal(false)}
+                  disabled={renewing}
+                  className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 rounded-lg border border-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRenewSubmit}
+                  disabled={renewing || !renewRefNum.trim() || !renewMaturityDate}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition disabled:opacity-50"
+                >
+                  {renewing ? "Renewing…" : "Confirm Renewal"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 2. Release Request Modal */}
+        {showReleaseModal && (
+          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+              <h4 className="text-base font-bold text-slate-900 mb-1">Request Instrument Release</h4>
+              <p className="text-xs text-slate-500 mb-4">
+                Submit an official request to AICTE Regulation Bureau for the release of security deposit #{inst.referenceNumber}.
+              </p>
+
+              {releaseError && (
+                <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs">
+                  {releaseError}
+                </div>
+              )}
+
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                Remarks / Justification
+              </label>
+              <textarea
+                value={releaseRemarks}
+                onChange={(e) => setReleaseRemarks(e.target.value)}
+                rows={3}
+                placeholder="e.g. Mandatory affiliation obligations completed; request FDR release..."
+                className="w-full text-xs p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 mb-4"
+              />
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowReleaseModal(false)}
+                  disabled={requestingRelease}
+                  className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 rounded-lg border border-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReleaseRequestSubmit}
+                  disabled={requestingRelease}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-50"
+                >
+                  {requestingRelease ? "Submitting…" : "Submit Request"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3. Scrutiny Review Modal */}
+        {showScrutinyModal && (
+          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200">
+              <h4 className="text-base font-bold text-slate-900 mb-1">Scrutiny Officer Release Checklist</h4>
+              <p className="text-xs text-slate-500 mb-4">
+                All 3 mandatory verification checks must be completed and confirmed before approval can be recorded.
+              </p>
+
+              {releaseError && (
+                <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs">
+                  {releaseError}
+                </div>
+              )}
+
+              <div className="space-y-3 mb-4 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checkOriginalFdr}
+                    onChange={(e) => setCheckOriginalFdr(e.target.checked)}
+                    className="mt-0.5 rounded text-purple-600"
+                  />
+                  <span className="text-xs text-slate-700 font-medium">
+                    1. Original FDR deposit certificate surrendered & verified against bank records.
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checkNoDues}
+                    onChange={(e) => setCheckNoDues(e.target.checked)}
+                    className="mt-0.5 rounded text-purple-600"
+                  />
+                  <span className="text-xs text-slate-700 font-medium">
+                    2. Institutional No-Dues clearance confirmed (faculty salaries, student dues, AICTE fee).
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checkLockin}
+                    onChange={(e) => setCheckLockin(e.target.checked)}
+                    className="mt-0.5 rounded text-purple-600"
+                  />
+                  <span className="text-xs text-slate-700 font-medium">
+                    3. Mandatory AICTE lock-in period compliance satisfied (minimum deposit tenure complete).
+                  </span>
+                </label>
+              </div>
+
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                Scrutiny Assessment Remarks (Optional)
+              </label>
+              <textarea
+                value={scrutinyRemarks}
+                onChange={(e) => setScrutinyRemarks(e.target.value)}
+                rows={2}
+                placeholder="e.g. Physical FDR copy verified on addendum ledger; approved for release."
+                className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 mb-4"
+              />
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowScrutinyModal(false)}
+                  disabled={submittingScrutiny}
+                  className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 rounded-lg border border-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleScrutinyApproveSubmit}
+                  disabled={submittingScrutiny || !checkOriginalFdr || !checkNoDues || !checkLockin}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition disabled:opacity-50"
+                >
+                  {submittingScrutiny ? "Approving…" : "Approve Scrutiny"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 4. Reject Modal */}
+        {showRejectModal && (
+          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+              <h4 className="text-base font-bold text-slate-900 mb-1">Reject Release Request</h4>
+              <p className="text-xs text-slate-500 mb-4">
+                Please enter a required official reason for rejecting this release request.
+              </p>
+
+              {releaseError && (
+                <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs">
+                  {releaseError}
+                </div>
+              )}
+
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                Rejection Note (Required)
+              </label>
+              <textarea
+                value={rejectNote}
+                onChange={(e) => setRejectNote(e.target.value)}
+                rows={3}
+                placeholder="e.g. Unresolved student grievances pending; lock-in period not fulfilled..."
+                className="w-full text-xs p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-500 mb-4"
+              />
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowRejectModal(false)}
+                  disabled={submittingReject}
+                  className="px-3.5 py-1.5 text-xs text-slate-600 hover:text-slate-800 rounded-lg border border-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRejectSubmit}
+                  disabled={submittingReject || !rejectNote.trim()}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition disabled:opacity-50"
+                >
+                  {submittingReject ? "Rejecting…" : "Confirm Rejection"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

@@ -637,3 +637,86 @@ Time:        9.018 s, estimated 10 s
 Ran all test suites.
 ```
 **Sandbox Note**: In standard sandbox mode on Windows, localhost loopback networking is blocked (`connect EACCES 127.0.0.1:3000`), so `tests/m4_verification.test.ts`, `tests/m3_instruments.test.ts`, and `tests/rbac.test.ts` fail fast with the designated descriptive error message. `tests/audit_append_only.test.ts` (7 tests) and `tests/encryption.test.ts` (3 tests) pass 100% without a dev server.
+
+
+---
+
+## Session F — M5 (Reminders), M6 (Renewal), M7 (Release) (2026-10-27)
+
+### Summary of Completed Work
+
+#### 1. Maturity Reminders Engine (M5)
+- **`src/lib/reminders.ts`**:
+  - `runMaturityReminders()`: Computes days to maturity against `now` across active instruments.
+  - Generates alerts for thresholds 90, 60, 30, 15, and 7 days.
+  - Automatically transitions instruments within 90 days to `EXPIRING_SOON`.
+  - Dispatches `Notification` records to owning institution users and regulation bureau Scrutiny Officers.
+  - Enforces duplicate prevention per instrument, user, and threshold level.
+- **`src/app/api/admin/run-reminders/route.ts`**:
+  - `POST /api/admin/run-reminders`: Restricted to `ADMIN` role only (non-admin receives 403).
+  - Runs reminder engine, writes append-only AuditLog entry, and returns detailed run metrics.
+- **`src/components/RunRemindersButton.tsx` & `src/app/admin/page.tsx`**:
+  - Added "Run Reminders" trigger button with real-time feedback on Admin Control page.
+- **`src/app/api/notifications/route.ts` & `src/app/notifications/page.tsx`**:
+  - `GET /api/notifications` & `PATCH /api/notifications` (mark single/all read).
+  - Dedicated notification center `/notifications` for authenticated users with unread badge in navigation.
+
+#### 2. Instrument Renewal Engine (M6)
+- **`src/app/api/instruments/[id]/renew/route.ts`**:
+  - `POST /api/instruments/[id]/renew`: Restricted to institution owner or `ADMIN` (others receive 403).
+  - Creates new child instrument with `parentId = old.id`, status `SUBMITTED`, new reference number, and new maturity date.
+  - Transitions old parent instrument status to `RENEWED`.
+  - Records append-only AuditLog entry.
+- **UI & History Tab (`src/app/instruments/[id]/page.tsx`)**:
+  - Added "Renew" button for institution owner and admin.
+  - Modal with reference number, maturity date, and amount inputs.
+  - History tab displays immediate parent link and child renewal chain.
+
+#### 3. Release Request & Multi-Stage Approval Workflow (M7)
+- **`src/app/api/instruments/[id]/release-request/route.ts`**:
+  - `POST /api/instruments/[id]/release-request`: Restricted to owning institution user (others receive 403).
+  - Creates `ReleaseRequest` record with status `PENDING_SCRUTINY` and remarks.
+- **`src/app/api/instruments/[id]/release-action/route.ts`**:
+  - `POST /api/instruments/[id]/release-action`:
+    - `SCRUTINY_APPROVE`: Role `SCRUTINY_OFFICER` (or `ADMIN`). Requires checklist of 3 booleans all true (original FDR surrendered, no-dues clearance, lock-in period satisfied). Transitions request to `SCRUTINY_APPROVED`.
+    - `FINAL_APPROVE`: Role `APPROVING_AUTHORITY` (or `ADMIN`). Transitions request to `FINAL_APPROVED` and sets instrument to `RELEASED`.
+    - `REJECT`: Role `SCRUTINY_OFFICER`, `APPROVING_AUTHORITY`, or `ADMIN`. Requires note. Transitions request to `REJECTED`.
+    - Enforces 403 Forbidden on role mismatch.
+    - Records append-only AuditLog entry for all actions.
+- **UI on Detail Page (`src/app/instruments/[id]/page.tsx`)**:
+  - Role-specific buttons: "Request Release" for institution, "Scrutiny Review" with 3-checkbox checklist modal for scrutiny officers, "Final Approve Release" for approving authorities, and "Reject" with required note modal.
+
+#### 4. Integration Test Suite (`tests/m5_m6_m7.test.ts`)
+- Covers:
+  - Reminders create notifications and skip duplicates on rerun; non-admin gets 403; notifications retrieval and mark-read work.
+  - Renewal creates parent-child chain, sets old to RENEWED, sets new to SUBMITTED; non-owner gets 403.
+  - Release workflow end-to-end: Request (`PENDING_SCRUTINY`) -> Scrutiny Checklist verification (`SCRUTINY_APPROVED`) -> Final Authority Approval (`FINAL_APPROVED` and instrument `RELEASED`).
+  - Role enforcement: Scrutiny cannot final-approve (403), Authority cannot scrutiny-approve (403), Institution cannot execute actions (403), incomplete checklist returns 400, rejection without note returns 400.
+
+---
+
+### Verification Evidence — Session F
+
+#### A. TypeScript Validation (`npm run typecheck`)
+```
+> aicte-fdr-portal@0.1.0 typecheck
+> tsc --noEmit
+```
+Exited with return code 0 (no type errors).
+
+#### B. ESLint Validation (`npm run lint`)
+```
+> aicte-fdr-portal@0.1.0 lint
+> eslint src/ tests/ prisma/
+```
+Exited with return code 0 (clean, 0 errors, 0 warnings).
+
+#### C. Jest Test Suite (`npm test`)
+```
+Test Suites: 4 failed, 2 passed, 6 total
+Tests:       43 failed, 10 passed, 53 total
+Snapshots:   0 total
+Time:        9.699 s, estimated 13 s
+Ran all test suites.
+```
+**Sandbox Note**: In standard sandbox mode on Windows, localhost loopback networking is blocked (`connect EACCES 127.0.0.1:3000`). All 4 live HTTP integration test suites (`m5_m6_m7.test.ts`, `m4_verification.test.ts`, `m3_instruments.test.ts`, `rbac.test.ts`) detect this in their `beforeAll` hooks and fail fast with the designated descriptive error message. Standalone test suites (`tests/audit_append_only.test.ts` [7 tests] and `tests/encryption.test.ts` [3 tests]) pass 100% without a dev server.

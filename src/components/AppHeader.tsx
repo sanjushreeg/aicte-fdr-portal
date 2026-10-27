@@ -57,6 +57,12 @@ export function AppHeader() {
           >
             Instruments
           </Link>
+          <Link
+            href="/notifications"
+            className="text-xs text-slate-300 hover:text-white font-medium transition"
+          >
+            Notifications
+          </Link>
         </nav>
 
         <div className="flex items-center space-x-4">

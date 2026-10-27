@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { redirect } from "next/navigation";
+import { RunRemindersButton } from "@/components/RunRemindersButton";
 
 export default async function AdminPage() {
   const session = await getServerSession(authOptions);
@@ -31,6 +32,12 @@ export default async function AdminPage() {
           >
             ← Back to Dashboard
           </Link>
+        </div>
+
+        {/* Maturity Reminders Control Panel */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h2 className="text-sm font-bold text-slate-800 mb-2">Automated Maturity Reminder Engine</h2>
+          <RunRemindersButton />
         </div>
 
         {/* Audit Log Table */}
