@@ -219,6 +219,68 @@ describe("M6: Instrument Renewal Engine", () => {
 
     expect(res.status).toBe(403);
   });
+
+  it("renews seeded instrument FDR-DUP-999888 and returns structured JSON response", async () => {
+    // 1. Locate the seeded FDR-DUP-999888 instrument (created in prisma/seed.js)
+    const seededInst = await prisma.instrument.findFirst({
+      where: { referenceNumber: "FDR-DUP-999888", status: { not: "RENEWED" } },
+      include: { institution: true },
+    });
+    expect(seededInst).toBeTruthy();
+
+    // 2. Identify owning institution user
+    const instUser = await prisma.user.findFirst({
+      where: { institutionId: seededInst!.institutionId },
+    });
+    expect(instUser).toBeTruthy();
+    const instCookie = await createSessionCookie(instUser!);
+
+    const newRef = `FDR-DUP-999888-RENEWED-${Date.now()}`;
+    const newMaturity = "2029-05-15";
+
+    // 3. Call renew endpoint
+    const res = await fetch(`${baseUrl}/api/instruments/${seededInst!.id}/renew`, {
+      method: "POST",
+      headers: {
+        Cookie: instCookie,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        referenceNumber: newRef,
+        maturityDate: newMaturity,
+        amount: seededInst!.amount,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    const json = await res.json();
+
+    expect(json.message).toBe("Instrument renewed successfully.");
+    expect(json.newInstrument).toBeDefined();
+    expect(json.newInstrument.referenceNumber).toBe(newRef);
+    expect(json.newInstrument.parentId).toBe(seededInst!.id);
+    expect(json.newInstrument.status).toBe("SUBMITTED");
+    expect(json.oldInstrument).toBeDefined();
+    expect(json.oldInstrument.status).toBe("RENEWED");
+
+    // 4. Validate DB state
+    const oldDb = await prisma.instrument.findUnique({ where: { id: seededInst!.id } });
+    expect(oldDb?.status).toBe("RENEWED");
+
+    // 5. Verify error cases return valid JSON with { error }
+    const badRes = await fetch(`${baseUrl}/api/instruments/${seededInst!.id}/renew`, {
+      method: "POST",
+      headers: {
+        Cookie: instCookie,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    expect(badRes.status).toBe(400);
+    const badJson = await badRes.json();
+    expect(badJson.error).toBeDefined();
+  });
 });
 
 // ─── M7: Release Workflow Tests ─────────────────────────────────────────────

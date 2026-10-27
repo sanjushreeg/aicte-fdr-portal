@@ -199,8 +199,25 @@ export default function InstrumentDetailPage() {
           amount: renewAmount ? parseFloat(renewAmount) : undefined,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      let json: any = null;
+      try {
+        json = await res.json();
+      } catch {
+        // Handle non-JSON or empty response from server
+      }
+
+      if (!res.ok) {
+        throw new Error(
+          json?.error ||
+          json?.message ||
+          `Server returned HTTP ${res.status} (${res.statusText || "Request Failed"})`
+        );
+      }
+
+      if (!json || !json.newInstrument) {
+        throw new Error("Invalid response received from server. Instrument may not have been renewed.");
+      }
+
       setShowRenewModal(false);
       router.push(`/instruments/${json.newInstrument.id}`);
     } catch (err: any) {

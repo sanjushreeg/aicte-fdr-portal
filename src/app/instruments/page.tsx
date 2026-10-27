@@ -51,6 +51,7 @@ function InstrumentsPageInner() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const user = session?.user as any;
   const isInstitution = user?.role === "INSTITUTION";
@@ -111,6 +112,29 @@ function InstrumentsPageInner() {
     setPage(1);
   };
 
+  const handleExportCsv = async () => {
+    setExporting(true);
+    try {
+      const qs = buildQueryString();
+      const res = await fetch(`/api/instruments/export?${qs}`);
+      if (!res.ok) throw new Error("CSV export failed");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.download = `aicte_instruments_${isInstitution ? "institution" : "bureau"}_${dateStr}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert("Failed to export instruments CSV: " + (err?.message || err));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (sessionStatus === "loading" || (sessionStatus === "authenticated" && loading && !data)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -142,12 +166,23 @@ function InstrumentsPageInner() {
                 : "Bureau-wide instrument registry"}
             </p>
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="flex items-center gap-3">
             {data ? (
-              <span>
+              <span className="text-xs text-slate-500 hidden sm:inline">
                 {data.total} total · page {data.page} of {data.totalPages}
               </span>
             ) : null}
+            <button
+              onClick={handleExportCsv}
+              disabled={exporting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition disabled:opacity-50"
+              title="Export instruments matching current filters to CSV"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              {exporting ? "Exporting CSV…" : "Export CSV"}
+            </button>
           </div>
         </div>
 
