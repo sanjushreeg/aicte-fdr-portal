@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AICTE Security Deposit &amp; FDR Portal</title>
+<style>
+  body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1b33;color:#e8eef7}
+  .wrap{max-width:900px;margin:0 auto;padding:48px 20px}
+  h1{font-size:2rem;margin:0 0 8px}
+  p.sub{color:#9fb3cc;margin:0 0 32px}
+  .card{background:#fff;color:#14233b;border-radius:14px;padding:24px;margin-bottom:20px}
+  .card h2{margin-top:0;font-size:1.15rem}
+  ul{padding-left:20px;line-height:1.7}
+  a.btn{display:inline-block;background:#0b5a8c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;margin:6px 8px 0 0}
+  small{color:#6b7c93}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AICTE Security Deposit &amp; FDR Management Portal</h1>
+  <p class="sub">Hackathon prototype: a centralized portal for the AICTE Regulation Bureau to manage institution-wise security deposits and FDRs.</p>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <ul>
+      <li>Central repository of deposits and FDRs with document versions</li>
+      <li>Verification against bank data and automatic discrepancy detection</li>
+      <li>Maturity tracking with 90/60/30/15/7-day reminders</li>
+      <li>Renewal chain (parent to child instruments)</li>
+      <li>Multi-stage release workflow: Institution, Scrutiny Officer, Approving Authority</li>
+      <li>Role-based access, append-only audit trail, AES-256-GCM encryption</li>
+      <li>Dashboard with charts and CSV export (impact metrics are simulated)</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Explore</h2>
+    <a class="btn" href="https://github.com/sanjushreeg/aicte-fdr-portal">Source code</a>
+    <a class="btn" href="https://github.com/sanjushreeg/aicte-fdr-portal#readme">README and setup</a>
+    <a class="btn" href="https://github.com/sanjushreeg/aicte-fdr-portal/blob/main/docs/DEMO.md">Demo script</a>
+    <a class="btn" href="https://github.com/sanjushreeg/aicte-fdr-portal/blob/main/docs/ER.md">ER diagram</a>
+  </div>
+
+  <div class="card">
+    <h2>Tech stack</h2>
+    <p>Next.js (App Router), TypeScript, Tailwind, Prisma, SQLite, NextAuth, Recharts, Jest. 61 automated tests.</p>
+    <small>Run locally with <code>npm run setup</code> then <code>npm run dev</code>. Demo password for all users: Password123.</small>
+  </div>
+</div>
+</body>
+</html>
