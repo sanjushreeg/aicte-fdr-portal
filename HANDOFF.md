@@ -516,3 +516,124 @@ Ran all test suites.
 - Working tree is **clean** (no uncommitted changes after this session's HANDOFF update).
 - HEAD remains at `a591adc` (WIP: M3 part 1 partial).
 - No new commit made per instructions.
+
+
+---
+
+## Session E — M4: Verification & Discrepancy Engine (2026-10-27)
+
+### Summary of Completed Work
+
+#### 1. Core Banking Verification Service (`src/lib/bank/`)
+- **`src/lib/bank/types.ts`**:
+  - `BankConfirmedData` contract: `referenceNumber`, `amount`, `bank`, `branchCode`, `maturityDate`, `status`, `holderName`.
+  - `BankVerificationService` interface: `verifyFdr(referenceNumber, instrument?)`.
+- **`src/lib/bank/mockBankService.ts`**:
+  - Simulates core banking lookup with ~300ms realistic network latency.
+  - Deterministically derives confirmed data from instrument records.
+  - Accurately preserves seeded mismatch cases (e.g. `FDR-MISMATCH-2026` returns core banking confirmed amount of ₹20,00,000 vs. submitted ₹25,00,000).
+- **`src/lib/bank/index.ts`**:
+  - Exports contracts and singleton `mockBankService`.
+
+#### 2. Discrepancy Detection Engine (`src/lib/discrepancy.ts`)
+- Implemented `detectDiscrepancies(instrument, bankData)` with explicit severity rules:
+  - `AMOUNT_MISMATCH` (`critical`): Variance between submitted and core banking deposit amounts.
+  - `DUPLICATE_FDR` (`critical`): Discovers existing instruments with the same reference number registered under a different institution.
+  - `MISSING_DOCUMENT` (`high`): Detects missing document records or documents without any `DocumentVersion` files.
+  - `BRANCH_CODE_MISMATCH` (`medium`): Identifies discrepancy between submitted branch and core banking branch code.
+  - `DATE_INCONSISTENCY` (`low`): Identifies date variance in maturity date records.
+- Implemented `persistDiscrepancies(instrumentId, verificationId, detectedList)`:
+  - Queries existing `OPEN` discrepancies for the instrument.
+  - Skips creation if an open discrepancy for the same code already exists, strictly enforcing no duplicates on repeated runs.
+
+#### 3. Verification API (`POST /api/instruments/[id]/verify`)
+- Route: `src/app/api/instruments/[id]/verify/route.ts`
+- Access Control: Restricted to `SCRUTINY_OFFICER`, `APPROVING_AUTHORITY`, and `ADMIN`. Institution users receive `403 Forbidden`.
+- Workflow:
+  - Next.js 16 dynamic route context: `await params`.
+  - Fetches core banking data from `mockBankService.verifyFdr()`.
+  - Executes `detectDiscrepancies()`.
+  - Creates a `Verification` row (`status = SUCCESS` if clean, `MISMATCH` if discrepancies detected, `source = MOCK_BANK_API`, `requestedById = user.id`, `bankData = JSON string`).
+  - Stores newly detected discrepancies linked to `verificationId` (deduping open ones).
+  - Updates instrument status: `VERIFIED` (if 0 open discrepancies remain) or `MISMATCH` (if open discrepancies exist), setting `verifiedByBank = true`.
+  - Logs append-only `AuditLog` entry (`action = "VERIFY"`, `entity = "Instrument"`).
+  - Returns verification record, all discrepancies, and updated instrument status.
+
+#### 4. Discrepancy Resolution API (`POST /api/discrepancies/[id]/resolve`)
+- Route: `src/app/api/discrepancies/[id]/resolve/route.ts`
+- Access Control: Restricted to `SCRUTINY_OFFICER`, `APPROVING_AUTHORITY`, and `ADMIN`. Institution users receive `403 Forbidden`.
+- Workflow:
+  - Validates required non-empty resolution note (returns `400` if missing).
+  - Accepts `status = "RESOLVED"` or `"WAIVED"`.
+  - Updates discrepancy with `status`, `resolvedAt = new Date()`, `resolvedById = user.id`, and appends `resolutionNote` to JSON details.
+  - Queries remaining `OPEN` discrepancies on the instrument: if count reaches 0, automatically flips instrument status to `VERIFIED`.
+  - Logs append-only `AuditLog` entry (`action = "RESOLVE"` or `"WAIVE"`, `entity = "Discrepancy"`).
+  - Returns updated discrepancy, instrument status, and remaining open count.
+
+#### 5. Instrument Detail UI Enhancements (`src/app/instruments/[id]/page.tsx`)
+- Added **"Run verification"** button to the top instrument card (hidden for institution users).
+- Button shows loading spinner while core banking API call is in flight.
+- Added alert banner displaying verification results and automatically refreshes tabs.
+- Added **Actions** column in the Discrepancies table with **Resolve** and **Waive** triggers for `OPEN` discrepancies.
+- Added resolution modal with mandatory note input and confirmation buttons.
+
+#### 6. Integration Test Suite (`tests/m4_verification.test.ts`)
+- Covers all M4 requirements against live Next.js HTTP server:
+  - Institution user receives 403 on verify and resolve endpoints.
+  - Clean instrument completes verification and status transitions to `VERIFIED`.
+  - Seeded 25L vs 20L (`FDR-MISMATCH-2026`) produces `AMOUNT_MISMATCH` with `critical` severity and sets instrument to `MISMATCH`.
+  - Seeded duplicate case (`FDR-DUP-999888`) produces `DUPLICATE_FDR` with `critical` severity.
+  - Missing-document case (`FDR-MISSING-DOC-FLAG`) produces `MISSING_DOCUMENT` with `high` severity.
+  - Re-running verification on an instrument does not duplicate open discrepancies.
+  - Discrepancy resolution with required note sets `RESOLVED`, clears instrument back to `VERIFIED`, and writes audit record.
+  - Discrepancy resolution with `WAIVED` sets status to `WAIVED` and writes `WAIVE` audit record.
+  - Resolution without note fails with HTTP 400.
+
+---
+
+### Verification Evidence — Session E
+
+#### A. TypeScript Validation (`npm run typecheck`)
+```
+> aicte-fdr-portal@0.1.0 typecheck
+> tsc --noEmit
+```
+Exited with return code 0 (no type errors).
+
+#### B. ESLint Validation (`npm run lint`)
+```
+> aicte-fdr-portal@0.1.0 lint
+> eslint src/ tests/ prisma/
+```
+Exited with return code 0 (clean, 0 errors, 0 warnings).
+
+#### C. Jest Test Suite (`npm test`)
+```
+> aicte-fdr-portal@0.1.0 test
+> jest --detectOpenHandles
+
+FAIL tests/m4_verification.test.ts
+  ● M4 Verification Engine — Core Banking Verification & Discrepancy Detection › ...
+    Next.js dev server is unreachable at http://localhost:3000 (fetch failed).
+    Please ensure 'npm run dev' is running before executing this test suite.
+
+FAIL tests/m3_instruments.test.ts
+  ● GET /api/instruments — filters, pagination, sorting › ...
+    Next.js dev server is unreachable at http://localhost:3000 (fetch failed).
+    Please ensure 'npm run dev' is running before executing this test suite.
+
+FAIL tests/rbac.test.ts
+  ● RBAC Enforcement via Live Next.js Dev Server (http://localhost:3000) › ...
+    Next.js dev server is unreachable at http://localhost:3000 (fetch failed).
+    Please ensure 'npm run dev' is running before executing this test suite.
+
+PASS tests/audit_append_only.test.ts
+PASS tests/encryption.test.ts
+
+Test Suites: 3 failed, 2 passed, 5 total
+Tests:       36 failed, 10 passed, 46 total
+Snapshots:   0 total
+Time:        9.018 s, estimated 10 s
+Ran all test suites.
+```
+**Sandbox Note**: In standard sandbox mode on Windows, localhost loopback networking is blocked (`connect EACCES 127.0.0.1:3000`), so `tests/m4_verification.test.ts`, `tests/m3_instruments.test.ts`, and `tests/rbac.test.ts` fail fast with the designated descriptive error message. `tests/audit_append_only.test.ts` (7 tests) and `tests/encryption.test.ts` (3 tests) pass 100% without a dev server.
