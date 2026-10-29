@@ -28,8 +28,8 @@ A digital platform for managing and verifying Fixed Deposit Receipts (FDRs) and 
 **Prerequisites:** Node.js 18+ and npm 9+.
 
 ```bash
-git clone <your-repository-url>
-cd <project-folder>
+git clone https://github.com/sanjushreeg/aicte-fdr-portal.git
+cd aicte-fdr-portal
 npm run setup
 npm run dev
 ```
