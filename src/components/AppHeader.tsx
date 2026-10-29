@@ -63,6 +63,14 @@ export function AppHeader() {
           >
             Notifications
           </Link>
+          {!isInstitution && (
+            <Link
+              href="/reports/state-exposure"
+              className="text-xs text-slate-300 hover:text-white font-medium transition"
+            >
+              State Exposure
+            </Link>
+          )}
         </nav>
 
         <div className="flex items-center space-x-4">

@@ -2,26 +2,27 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth } from "@/lib/serverAuth";
 
-const STATUS_COLORS: Record<string, string> = {
-  ACTIVE: "#10b981",        // emerald-500
-  EXPIRING_SOON: "#f59e0b", // amber-500
-  SUBMITTED: "#0284c7",     // sky-600
-  VERIFIED: "#0d9488",      // teal-600
-  MISMATCH: "#e11d48",      // rose-600
-  MATURED: "#7c3aed",       // violet-600
-  EXPIRED: "#64748b",       // slate-500
-  RENEWED: "#2563eb",       // blue-600
-  REPLACED: "#4f46e5",      // indigo-600
-  RELEASED: "#059669",      // green-600
-  REJECTED: "#dc2626",      // red-600
-};
+// All 11 lifecycle statuses with their display labels and colours
+const ALL_STATUSES: Array<{ status: string; label: string; fill: string }> = [
+  { status: "ACTIVE",        label: "Active",        fill: "#10b981" }, // emerald-500
+  { status: "EXPIRING_SOON", label: "Expiring Soon", fill: "#f59e0b" }, // amber-500
+  { status: "SUBMITTED",     label: "Submitted",     fill: "#0284c7" }, // sky-600
+  { status: "VERIFIED",      label: "Verified",      fill: "#0d9488" }, // teal-600
+  { status: "MISMATCH",      label: "Mismatch",      fill: "#e11d48" }, // rose-600
+  { status: "MATURED",       label: "Matured",       fill: "#7c3aed" }, // violet-600
+  { status: "EXPIRED",       label: "Expired",       fill: "#64748b" }, // slate-500
+  { status: "RENEWED",       label: "Renewed",       fill: "#2563eb" }, // blue-600
+  { status: "REPLACED",      label: "Replaced",      fill: "#4f46e5" }, // indigo-600
+  { status: "RELEASED",      label: "Released",      fill: "#059669" }, // green-600
+  { status: "REJECTED",      label: "Rejected",      fill: "#dc2626" }, // red-600
+];
 
 export async function GET(req: Request) {
   const { error, user } = await requireAuth(req);
   if (error) return error;
 
   const isInstitution = user.role === "INSTITUTION";
-  const whereClause: any = {};
+  const whereClause: Record<string, unknown> = {};
 
   if (isInstitution) {
     if (!user.institutionId) {
@@ -54,7 +55,7 @@ export async function GET(req: Request) {
       where: { ...whereClause, status: "ACTIVE" },
     }),
 
-    // Expiring in 30 days (future date within 30 days)
+    // Expiring in 30 days (future date within 30 days, not already terminal)
     prisma.instrument.count({
       where: {
         ...whereClause,
@@ -79,7 +80,7 @@ export async function GET(req: Request) {
       },
     }),
 
-    // Instruments for charts aggregation
+    // Instruments for chart aggregation
     prisma.instrument.findMany({
       where: whereClause,
       select: {
@@ -110,50 +111,70 @@ export async function GET(req: Request) {
       : null,
   ]);
 
-  // 1. Chart Data: Instruments by Status
+  // ── Chart 1: Instruments by Status ────────────────────────────────────────
+  // Count actual records per status
   const statusCounts: Record<string, number> = {};
   for (const inst of instruments) {
     statusCounts[inst.status] = (statusCounts[inst.status] || 0) + 1;
   }
-  const statusChartData = Object.entries(statusCounts)
-    .map(([status, count]) => ({
-      status,
-      label: status.replace("_", " "),
-      count,
-      fill: STATUS_COLORS[status] || "#64748b",
-    }))
-    .sort((a, b) => b.count - a.count);
 
-  // 2. Chart Data: Maturity Timeline by Month
-  const monthMap: Record<string, { month: string; sortKey: string; count: number; totalAmount: number }> = {};
+  // Always include every configured status, using 0 for absent ones.
+  // Sort by count descending so the longest bar is at the top.
+  const statusChartData = ALL_STATUSES.map(({ status, label, fill }) => ({
+    status,
+    label,
+    count: statusCounts[status] ?? 0,
+    fill,
+  })).sort((a, b) => b.count - a.count);
+
+  // ── Chart 2: Maturity Timeline by Month (next 12 calendar months) ─────────
+  // Build 12 consecutive month buckets starting from the current month.
+  const monthBuckets: Array<{
+    month: string;   // display label, e.g. "Nov 2026"
+    sortKey: string; // "YYYY-MM" for sorting / keying
+    count: number;
+    totalAmount: number;
+  }> = [];
+
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const year = d.getFullYear();
+    const monthNum = String(d.getMonth() + 1).padStart(2, "0");
+    const sortKey = `${year}-${monthNum}`;
+    const label = d.toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+    monthBuckets.push({ month: label, sortKey, count: 0, totalAmount: 0 });
+  }
+
+  // Build a lookup map for O(1) updates
+  const bucketMap = new Map<string, (typeof monthBuckets)[0]>();
+  for (const b of monthBuckets) bucketMap.set(b.sortKey, b);
+
   for (const inst of instruments) {
     const d = new Date(inst.maturityDate);
-    if (!isNaN(d.getTime())) {
-      const year = d.getFullYear();
-      const monthNum = String(d.getMonth() + 1).padStart(2, "0");
-      const sortKey = `${year}-${monthNum}`;
-      const monthName = d.toLocaleDateString("en-IN", { month: "short", year: "numeric" });
-      if (!monthMap[sortKey]) {
-        monthMap[sortKey] = { month: monthName, sortKey, count: 0, totalAmount: 0 };
-      }
-      monthMap[sortKey].count += 1;
-      monthMap[sortKey].totalAmount += inst.amount;
+    if (isNaN(d.getTime())) continue;
+    // Skip instruments that have already matured before the current month
+    const year = d.getFullYear();
+    const monthNum = String(d.getMonth() + 1).padStart(2, "0");
+    const sortKey = `${year}-${monthNum}`;
+    const bucket = bucketMap.get(sortKey);
+    if (bucket) {
+      bucket.count += 1;
+      bucket.totalAmount += inst.amount;
     }
   }
-  const maturityTimelineData = Object.values(monthMap)
-    .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
-    .slice(0, 12) // Show next/upcoming 12 active months
-    .map((item) => ({
-      month: item.month,
-      count: item.count,
-      amountLakhs: parseFloat((item.totalAmount / 100000).toFixed(2)),
-      totalAmount: item.totalAmount,
-    }));
 
-  // 3. Chart Data: State-Wise Exposure
+  const maturityTimelineData = monthBuckets.map((b) => ({
+    month: b.month,
+    count: b.count,
+    amountLakhs: parseFloat((b.totalAmount / 100_000).toFixed(2)),
+    totalAmount: b.totalAmount,
+  }));
+
+  // ── Chart 3: State-Wise Exposure (top 10 by total amount) ─────────────────
   const stateMap: Record<string, { state: string; count: number; totalAmount: number }> = {};
   for (const inst of instruments) {
-    const state = inst.institution?.state || "Unknown";
+    const rawState = inst.institution?.state?.trim();
+    const state = rawState || "Unknown";
     if (!stateMap[state]) {
       stateMap[state] = { state, count: 0, totalAmount: 0 };
     }
@@ -162,18 +183,19 @@ export async function GET(req: Request) {
   }
   const stateWiseExposureData = Object.values(stateMap)
     .sort((a, b) => b.totalAmount - a.totalAmount)
-    .slice(0, 10) // Top 10 states by exposure
+    .slice(0, 10)
     .map((item) => ({
       state: item.state,
       count: item.count,
-      amountCrores: parseFloat((item.totalAmount / 10000000).toFixed(2)),
+      amountCrores: parseFloat((item.totalAmount / 10_000_000).toFixed(2)),
       totalAmount: item.totalAmount,
     }));
 
-  // Simulated Impact Metrics
-  const simulatedAccuracy = totalInstruments > 0
-    ? Math.max(92, Math.min(99.9, +(100 - (openDiscrepancies / totalInstruments) * 5).toFixed(1)))
-    : 99.8;
+  // ── Impact Metrics ────────────────────────────────────────────────────────
+  const simulatedAccuracy =
+    totalInstruments > 0
+      ? Math.max(92, Math.min(99.9, +(100 - (openDiscrepancies / totalInstruments) * 5).toFixed(1)))
+      : 99.8;
 
   const impactMetrics = isInstitution
     ? {

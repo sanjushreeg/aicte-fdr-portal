@@ -37,8 +37,13 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // Protect /dashboard and other portal routes
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/instruments") || pathname.startsWith("/scrutiny")) {
+  // Protect /dashboard, /instruments, /scrutiny, and /reports portal routes
+  if (
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/instruments") ||
+    pathname.startsWith("/scrutiny") ||
+    pathname.startsWith("/reports")
+  ) {
     if (!token) {
       const loginUrl = new URL("/login", req.url);
       loginUrl.searchParams.set("callbackUrl", pathname);

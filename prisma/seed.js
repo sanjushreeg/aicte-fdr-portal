@@ -5,6 +5,20 @@ const bcrypt = require("bcryptjs");
 const prisma = new PrismaClient();
 
 async function main() {
+  const dbUrl = process.env.DATABASE_URL || "";
+  // CRITICAL SAFETY CHECK: Refuse to run against any remote or production database
+  if (
+    process.env.NODE_ENV === "production" ||
+    dbUrl.includes("render.com") ||
+    dbUrl.includes("postgres") ||
+    dbUrl.includes("supabase") ||
+    dbUrl.includes("neon.tech") ||
+    dbUrl.includes("amazonaws.com")
+  ) {
+    console.error("🛑 ABORTED: prisma/seed.js detected a remote or production DATABASE_URL. Destructive seed cannot run against remote databases.");
+    process.exit(1);
+  }
+
   console.log("🧹 Cleaning up old database tables...");
   await prisma.$executeRawUnsafe('DELETE FROM "AuditLog";');
   await prisma.notification.deleteMany();
